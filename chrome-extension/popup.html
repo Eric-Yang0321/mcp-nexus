@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { width: 320px; font-family: system-ui; margin: 16px; color: #333; }
+    h2 { margin: 0 0 8px; font-size: 16px; }
+    .status { padding: 8px 12px; border-radius: 6px; margin: 8px 0; font-size: 13px; }
+    .status.on { background: #e8f5e9; color: #2e7d32; }
+    .section { margin: 12px 0; }
+    .section h3 { font-size: 13px; margin: 0 0 4px; }
+    .risk-row { display: flex; align-items: center; padding: 4px 0; font-size: 12px; border-bottom: 1px solid #eee; }
+    .risk-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; }
+    .risk-dot.safe { background: #4caf50; }
+    .risk-dot.mutating { background: #ff9800; }
+    .risk-dot.destructive { background: #f44336; }
+    .count { font-weight: bold; color: #1976d2; }
+    .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
+    .toggle { position: relative; width: 40px; height: 22px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #ccc; border-radius: 22px; transition: .3s; }
+    .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: .3s; }
+    input:checked + .slider { background: #4caf50; }
+    input:checked + .slider:before { transform: translateX(18px); }
+  </style>
+</head>
+<body>
+  <h2>🔧 MCP Auto Approve</h2>
+
+  <div class="status on" id="statusBox">✅ 运行中 — <span id="countDisplay" class="count">0</span> 次自动批</div>
+
+  <div class="section">
+    <h3>审批策略</h3>
+    <div class="risk-row"><span class="risk-dot safe"></span> 只读查询 → 自动批 (100ms)</div>
+    <div class="risk-row"><span class="risk-dot mutating"></span> 重启/追加 → 自动批 (400ms)</div>
+    <div class="risk-row"><span class="risk-dot destructive"></span> 写入/删除 → 不自动批</div>
+  </div>
+
+  <div class="section">
+    <h3>已知工具</h3>
+    <div class="risk-row"><span class="risk-dot safe"></span> 9 个 SAFE</div>
+    <div class="risk-row"><span class="risk-dot mutating"></span> 4 个 MUTATING</div>
+    <div class="risk-row"><span class="risk-dot destructive"></span> 2 个 DESTRUCTIVE</div>
+  </div>
+
+  <div class="section">
+    <h3>控制</h3>
+    <div class="toggle-row">
+      <span>🟡 MUTATING 自动批</span>
+      <label class="toggle">
+        <input type="checkbox" id="mutatingToggle" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="toggle-row">
+      <span>调试日志</span>
+      <label class="toggle">
+        <input type="checkbox" id="debugToggle" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

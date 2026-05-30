@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "MCP Auto Approve — ChatGPT 智能审批",
+  "version": "1.0",
+  "description": "仿 Codex prefix_rule 的 ChatGPT MCP 工具自动审批：SAFE/MUTATING 自动批，DESTRUCTIVE 需确认",
+  "permissions": ["storage"],
+  "host_permissions": ["https://chatgpt.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "MCP Auto Approve"
+  },
+  "icons": {
+    "128": "icon.png"
+  }
+}

@@ -1,0 +1,31 @@
+# 敏感文件
+.env
+.env.chat
+oauth_store.json
+audit.log
+proxy_audit.log
+notify_config.json
+notify_log.jsonl
+health_checks.json
+health_log.jsonl
+knowledge_base.jsonl
+tasks.jsonl
+cron_execution.log
+workflows/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 系统文件
+*.service
+backups/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
