@@ -29,3 +29,7 @@ backups/
 # OS
 .DS_Store
 Thumbs.db
+DEPLOYMENT.md
+claude-code-mcp*
+.memsearch/
+transfer_test*
