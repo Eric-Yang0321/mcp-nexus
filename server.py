@@ -1909,7 +1909,7 @@ def _win_ssh(cmd: str, timeout: int = 20) -> tuple[int, str, str]:
         stderr = r.stderr.decode("gbk", errors="replace")[:5000]
     return r.returncode, stdout, stderr
 
-WIN_ALLOWED_PATHS = ["C:/Users/Eric", "D:/", "E:/", "C:/temp", "C:/tmp"]
+WIN_ALLOWED_PATHS = ["C:/Users/Eric", "D:/", "E:/", "C:/temp", "C:/tmp", "D:/360MoveData/Users/Eric"]
 
 def _win_path_ok(path: str) -> tuple[bool, str]:
     p = path.replace("\\", "/")
@@ -1992,6 +1992,91 @@ def win_get_processes(count: int = 20, sort_by: str = "cpu") -> dict:
     return {"count": min(count, len(lines)), "sort_by": sort_by, "processes": lines[:count+3], "timestamp": datetime.now().isoformat()}
 
 
+@mcp.tool(annotations=RISK["mutating"])
+def win_transfer_file(source_path: str, dest_path: str) -> dict:
+    """[MUTATING] 将服务器上的文件通过 SCP 传输到 Windows 电脑
+
+    配合 write_file 两步完成大文件传输:
+      1. write_file → 把内容写到服务器的 /tmp/xxx
+      2. win_transfer_file → SCP 传到 Windows 桌面
+
+    Args:
+        source_path: 服务器上的源文件路径，如 /tmp/poster.jpg
+        dest_path: Windows 目标路径，如 D:\\Users\\Eric\\Desktop\\poster.jpg
+    """
+    ok, msg = _win_path_ok(dest_path)
+    if not ok: return {"error": msg}
+
+    src = Path(source_path)
+    if not src.exists():
+        return {"error": f"服务器文件不存在: {source_path}"}
+    if not src.is_file():
+        return {"error": f"不是文件: {source_path}"}
+
+    size = src.stat().st_size
+    win_path = msg.replace("/", "\\")
+
+    r = subprocess.run(
+        ["scp", "-P", WIN_SSH_PORT, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
+         str(src), f"{WIN_SSH_USER}@{WIN_SSH_HOST}:{win_path}"],
+        capture_output=True, text=True, timeout=120,
+    )
+
+    audit_log("SUCCESS" if r.returncode == 0 else "FAIL", "win_transfer_file",
+              {"source": source_path, "dest": msg, "size": size},
+              f"{'已传输' if r.returncode == 0 else '失败'} {size} 字节",
+              "mutating")
+
+    if r.returncode == 0:
+        return {"source": source_path, "dest": msg, "bytes": size, "message": f"已传输 {source_path} → {msg} ({size} 字节)", "timestamp": datetime.now().isoformat()}
+    else:
+        return {"error": r.stderr[:500]}
+
+
+@mcp.tool(annotations=RISK["destructive"])
+def win_write_binary(path: str, content_b64: str) -> dict:
+    """[DESTRUCTIVE] 写入大文件到 Windows（通过 SCP，支持图片等二进制文件）
+
+    对于小文本文件请用 win_write_file，大文件（图片/压缩包等）用此工具。
+
+    Args:
+        path: 目标路径，如 D:\\Users\\Eric\\Desktop\\poster.png
+        content_b64: 文件的 base64 编码内容
+    """
+    import base64, tempfile
+    ok, msg = _win_path_ok(path)
+    if not ok: return {"error": msg}
+
+    try:
+        raw = base64.b64decode(content_b64)
+    except Exception as e:
+        return {"error": f"Base64 解码失败: {e}"}
+
+    # 写到服务器临时文件
+    tmp = Path("/tmp") / f"mcp-win-transfer-{secrets.token_hex(4)}"
+    tmp.write_bytes(raw)
+
+    # SCP 到 Windows
+    win_path = msg.replace("/", "\\")
+    r = subprocess.run(
+        ["scp", "-P", WIN_SSH_PORT, "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
+         str(tmp), f"{WIN_SSH_USER}@{WIN_SSH_HOST}:{win_path}"],
+        capture_output=True, text=True, timeout=60,
+    )
+
+    # 清理
+    tmp.unlink(missing_ok=True)
+
+    audit_log("SUCCESS" if r.returncode == 0 else "FAIL", "win_write_binary",
+              {"path": msg, "size": len(raw)}, f"{'写入' if r.returncode == 0 else '失败'} {len(raw)} 字节",
+              "destructive")
+
+    if r.returncode == 0:
+        return {"path": msg, "bytes": len(raw), "message": f"已写入 {msg} ({len(raw)} 字节)", "timestamp": datetime.now().isoformat()}
+    else:
+        return {"error": r.stderr[:500]}
+
+
 @mcp.tool(annotations=RISK["safe"])
 def win_get_system_info() -> dict:
     """[SAFE] 查看 Windows 系统信息 (OS版本/内存/磁盘/网络)"""
@@ -2023,6 +2108,142 @@ def win_run_command(args: list[str]) -> dict:
     code, stdout, stderr = _win_ssh(cmd, timeout=30)
     audit_log("SUCCESS" if code == 0 else "FAIL", "win_run_command", {"args": args}, f"exit={code}", "destructive")
     return {"command": cmd, "exit_code": code, "stdout": stdout[:5000], "stderr": stderr[:2000], "timestamp": datetime.now().isoformat()}
+
+
+# ═══════════════════════════════════════════════════════════
+# 🎯 Skill 系统 (仿 Claude Code SKILL.md + 渐进加载)
+# ═══════════════════════════════════════════════════════════
+
+SKILLS_PATH = Path(__file__).parent / "skills"
+SKILLS_PATH.mkdir(exist_ok=True)
+
+
+@mcp.tool(annotations=RISK["safe"])
+def skill_create(name: str, description: str, instructions: str, triggers: str = "") -> dict:
+    """[SAFE] 创建可复用的 Skill（技能）
+
+    Skill 定义了完成特定任务的完整流程。当用户请求匹配触发词时，ChatGPT 自动加载并执行。
+
+    Args:
+        name: 技能名称，如 generate-poster
+        description: 一句话描述，如 "生成海报图片并保存到桌面"
+        instructions: 逐步操作说明，包含要调用的工具和参数模板。支持 {{variable}} 占位符
+        triggers: 逗号分隔的触发词，如 "海报,生成图,poster,做图"
+
+    Example:
+        skill_create("generate-poster",
+            "生成海报并保存到桌面",
+            "1. 用 AI 生成图片\n2. write_file 保存到 /tmp/poster.png\n3. win_transfer_file 传到桌面",
+            "海报,poster,生成图")
+    """
+    skill_dir = SKILLS_PATH / name
+    skill_dir.mkdir(exist_ok=True)
+
+    frontmatter = f"""---
+name: {name}
+description: "{description}"
+triggers: [{triggers}]
+created: {datetime.now().isoformat()}
+---
+
+"""
+    skill_md = frontmatter + instructions
+    (skill_dir / "SKILL.md").write_text(skill_md, encoding="utf-8")
+
+    return {"name": name, "description": description, "triggers": [t.strip() for t in triggers.split(",") if t.strip()], "message": f"Skill 已创建: {name}", "timestamp": datetime.now().isoformat()}
+
+
+@mcp.tool(annotations=RISK["safe"])
+def skill_list() -> dict:
+    """[SAFE] 列出所有可用 Skill"""
+    skills = []
+    for d in sorted(SKILLS_PATH.iterdir()):
+        if d.is_dir() and (d / "SKILL.md").exists():
+            content = (d / "SKILL.md").read_text(encoding="utf-8", errors="replace")
+            # Parse YAML frontmatter
+            name = d.name
+            desc = ""
+            triggers = []
+            if content.startswith("---"):
+                end = content.find("---", 3)
+                if end > 0:
+                    for line in content[3:end].strip().split("\n"):
+                        line = line.strip()
+                        if line.startswith("name:"): name = line.split(":",1)[1].strip()
+                        elif line.startswith("description:"): desc = line.split(":",1)[1].strip().strip('"')
+                        elif line.startswith("triggers:"):
+                            triggers = [t.strip() for t in line.split("[",1)[1].rstrip("]").split(",") if t.strip()]
+            skills.append({"name": name, "description": desc, "triggers": triggers})
+    return {"total": len(skills), "skills": skills, "timestamp": datetime.now().isoformat()}
+
+
+@mcp.tool(annotations=RISK["safe"])
+def skill_search(query: str) -> dict:
+    """[SAFE] 按关键词搜索 Skill（匹配名称、描述、触发词）
+
+    Args:
+        query: 搜索关键词，如 "海报" 或 "备份"
+    """
+    all_skills = skill_list()
+    q = query.lower()
+    results = []
+    for s in all_skills["skills"]:
+        text = s["name"] + " " + s["description"] + " " + " ".join(s["triggers"])
+        if q in text.lower():
+            results.append(s)
+    return {"query": query, "found": len(results), "skills": results, "timestamp": datetime.now().isoformat()}
+
+
+@mcp.tool(annotations=RISK["safe"])
+def skill_run(name: str, params: dict = None) -> dict:
+    """[SAFE] 加载并返回 Skill 的执行指令
+
+    返回完整的分步指令。ChatGPT 应严格按照步骤顺序执行，使用已有的 MCP 工具。
+    步骤中的 {{variable}} 会被 params 中的值替换。
+
+    Args:
+        name: Skill 名称
+        params: 可选参数，如 {"topic": "落霞与孤鹜", "style": "水墨画"}
+    """
+    skill_dir = SKILLS_PATH / name
+    if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
+        return {"error": f"Skill 不存在: {name}。用 skill_list 查看可用列表。"}
+
+    content = (skill_dir / "SKILL.md").read_text(encoding="utf-8", errors="replace")
+
+    # Extract body (after frontmatter)
+    body = content
+    if content.startswith("---"):
+        end = content.find("---", 3)
+        if end > 0:
+            body = content[end+3:].strip()
+
+    # Variable substitution
+    if params:
+        for k, v in params.items():
+            body = body.replace(f"{{{{{k}}}}}", str(v))
+
+    return {
+        "skill": name,
+        "instructions": body,
+        "message": f"请严格按照以下步骤执行。完成后报告结果。",
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+@mcp.tool(annotations=RISK["safe"])
+def skill_delete(name: str) -> dict:
+    """[SAFE] 删除一个 Skill
+
+    Args:
+        name: Skill 名称
+    """
+    skill_dir = SKILLS_PATH / name
+    if not skill_dir.is_dir():
+        return {"error": f"Skill 不存在: {name}"}
+    import shutil
+    shutil.rmtree(skill_dir)
+    return {"name": name, "message": f"Skill 已删除: {name}", "timestamp": datetime.now().isoformat()}
 
 
 # ═══════════════════════════════════════════════════════════

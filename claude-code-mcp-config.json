@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "server-monitor": {
+      "type": "streamable-http",
+      "url": "https://mcp.eric-ai-lab.top/mcp",
+      "headers": {
+        "Authorization": "Bearer <从 ChatGPT OAuth 获取的 access_token>"
+      },
+      "autoApprove": [
+        "get_server_status",
+        "get_docker_containers",
+        "read_logs",
+        "get_processes",
+        "get_disk_usage",
+        "get_network_info",
+        "get_systemd_services",
+        "get_docker_logs",
+        "get_tool_risk_levels",
+        "restart_docker_container",
+        "restart_systemd_service",
+        "append_file"
+      ]
+    }
+  }
+}

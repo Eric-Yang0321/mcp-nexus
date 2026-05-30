@@ -13,6 +13,7 @@
 const CONFIG = {
   // 哪些工具自动批、哪些不批
   safe: [
+    'skill_create', 'skill_list', 'skill_search', 'skill_run', 'skill_delete',
     'get_server_status', 'get_docker_containers', 'read_logs',
     'get_processes', 'get_disk_usage', 'get_network_info',
     'get_systemd_services', 'get_docker_logs', 'get_tool_risk_levels',

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "server-monitor": {
+      "type": "http",
+      "url": "http://127.0.0.1:8765/mcp",
+      "headers": {
+        "Authorization": "Bearer iiOwR8hRibhtXu0t10gCWyeWVIA2niTrGsqbkord_SI"
+      }
+    }
+  }
+}
