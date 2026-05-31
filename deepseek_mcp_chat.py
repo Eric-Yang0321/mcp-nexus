@@ -18,10 +18,14 @@ from pathlib import Path
 
 # ── 配置 ─────────────────────────────────────────────────
 DEEPSEEK_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-2a95b1cbaa9542ffb60c55a29e7f87b0")
+DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_MODEL = os.getenv("MCP_CHAT_MODEL", "deepseek-chat")  # → v4-flash, or use deepseek-reasoner
 MCP_SERVER = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8765")
 MAX_STEPS = int(os.getenv("MCP_MAX_STEPS", "15"))  # 最大工具调用轮数
+
+if not DEEPSEEK_KEY:
+    print("错误: 请先设置环境变量 DEEPSEEK_API_KEY", file=sys.stderr)
+    sys.exit(1)
 
 # ── 工具定义 ─────────────────────────────────────────────
 # 直接定义工具 schema，不依赖 MCP 协议
