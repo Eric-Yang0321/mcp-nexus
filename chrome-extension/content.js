@@ -13,23 +13,37 @@
 const CONFIG = {
   // 哪些工具自动批、哪些不批
   safe: [
-    'skill_create', 'skill_list', 'skill_search', 'skill_run', 'skill_delete',
     'get_server_status', 'get_docker_containers', 'read_logs',
     'get_processes', 'get_disk_usage', 'get_network_info',
     'get_systemd_services', 'get_docker_logs', 'get_tool_risk_levels',
     'git_status', 'git_diff', 'git_log', 'git_blame', 'git_branch_list',
     'search_code', 'search_files', 'db_query',
     'docker_compose_ps', 'docker_compose_logs',
-    'backup_list', 'read_config'
+    'backup_list', 'read_config',
+    'kb_save', 'kb_search', 'kb_list', 'kb_summary',
+    'task_start', 'task_status', 'task_update', 'task_list',
+    'notify_config', 'notify_log',
+    'cron_list', 'cron_log',
+    'health_check_list',
+    'workflow_create', 'workflow_list', 'workflow_status',
+    'win_read_file', 'win_list_dir', 'win_get_processes', 'win_get_system_info',
+    'skill_create', 'skill_list', 'skill_search', 'skill_run', 'skill_delete'
   ],
   mutating: [
     'restart_docker_container', 'restart_systemd_service',
-    'append_file', 'run_allowed_command', 'git_checkout',
-    'docker_compose_restart', 'backup_create'
+    'append_file', 'git_checkout',
+    'docker_compose_restart', 'backup_create',
+    'task_cancel', 'notify_send',
+    'cron_add', 'cron_remove',
+    'health_check_add', 'health_check_run',
+    'workflow_run', 'win_transfer_file'
   ],
   destructive: [
-    'write_file', 'rollback_file', 'git_commit', 'edit_file',
-    'backup_restore', 'write_config'
+    'write_file', 'run_allowed_command', 'rollback_file',
+    'git_commit', 'edit_file',
+    'backup_restore', 'write_config',
+    'health_remediate',
+    'win_write_file', 'win_write_binary', 'win_run_command'
   ],
 
   // 对话框匹配关键词
@@ -54,9 +68,45 @@ const CONFIG = {
 // 状态
 let lastApproved = {}; // { toolName: timestamp }
 let approveCount = 0;
+let settings = {
+  mutatingEnabled: true,
+  debugEnabled: true,
+  approveCount: 0,
+};
 
 function log(msg) {
-  if (CONFIG.debug) console.log(`[MCP AutoApprove] ${msg}`);
+  if (CONFIG.debug && settings.debugEnabled) console.log(`[MCP AutoApprove] ${msg}`);
+}
+
+function loadSettings(callback) {
+  if (!globalThis.chrome?.storage?.local) {
+    callback?.();
+    return;
+  }
+
+  chrome.storage.local.get(settings, (data) => {
+    settings = { ...settings, ...data };
+    approveCount = Number(settings.approveCount || 0);
+    callback?.();
+  });
+}
+
+if (globalThis.chrome?.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local') return;
+
+    for (const key of Object.keys(settings)) {
+      if (changes[key]) settings[key] = changes[key].newValue;
+    }
+
+    approveCount = Number(settings.approveCount || approveCount || 0);
+    log(`设置已更新: mutating=${settings.mutatingEnabled}, debug=${settings.debugEnabled}`);
+  });
+}
+
+function saveApproveCount() {
+  if (!globalThis.chrome?.storage?.local) return;
+  chrome.storage.local.set({ approveCount });
 }
 
 // 从对话框中提取工具名和风险等级
@@ -221,6 +271,11 @@ function processDialog() {
     return false;
   }
 
+  if (tool.risk === 'mutating' && !settings.mutatingEnabled) {
+    log(`🟡 ${tool.name} — mutating 自动批已关闭`);
+    return false;
+  }
+
   // SAFE/MUTATING → 自动点击
   const delay = tool.risk === 'safe' ? CONFIG.safeDelay : CONFIG.mutatingDelay;
   const icon = tool.risk === 'safe' ? '🟢' : '🟡';
@@ -232,6 +287,7 @@ function processDialog() {
     if (btn && clickButton(btn)) {
       lastApproved[tool.name] = Date.now();
       approveCount++;
+      saveApproveCount();
       log(`✅ [${approveCount}] 已自动批: ${tool.name}`);
     } else {
       log(`⚠️ 未找到 Approve 按钮`);
@@ -286,7 +342,7 @@ function startObserver() {
 }
 
 // 延迟启动，等 ChatGPT 加载完
-setTimeout(startObserver, 2000);
+loadSettings(() => setTimeout(startObserver, 2000));
 
 // 也监听 URL 变化（SPA 导航）
 let lastUrl = location.href;
